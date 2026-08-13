@@ -291,6 +291,51 @@ def cmd_status(_: argparse.Namespace) -> int:
     return 0
 
 
+CALIBRATION_PAIRS = [
+    ("paraphrase", "In sample_mflix, imdb.rating is a 0-10 float.",
+     "Ratings in sample_mflix live at imdb.rating on a 0 to 10 scale."),
+    ("contradiction", "In sample_mflix, imdb.rating is a 0-10 float.",
+     "In sample_mflix, imdb.rating is on a 0-100 scale; divide by 10 first."),
+    ("same topic", "In sample_mflix, imdb.rating is a 0-10 float.",
+     "Movie release years are stored in the year field as an integer."),
+    ("unrelated", "In sample_mflix, imdb.rating is a 0-10 float.",
+     "Theaters are listed in the theaters collection with a geo location."),
+]
+
+
+def cmd_calibrate(_: argparse.Namespace) -> int:
+    """Print real Atlas similarity scores so the write-gate bands are set from
+    measurements, not from raw-cosine intuition."""
+    from . import embed
+
+    _banner("CALIBRATE — where the write-gate bands actually fall")
+    table = Table(box=None)
+    table.add_column("pair", style="bold")
+    table.add_column("atlas score", justify="right")
+    table.add_column("raw cosine", justify="right", style="dim")
+    table.add_column("gate outcome")
+
+    for label, a, b in CALIBRATION_PAIRS:
+        va, vb = embed.embed_many([a, b])
+        raw = embed.cosine(va, vb)
+        score = (1 + raw) / 2  # exactly how $vectorSearch normalizes cosine
+        if score >= config.MERGE_SIMILARITY:
+            outcome, style = "merge (dedupe)", "cyan"
+        elif score >= config.CONTRADICTION_LOW:
+            outcome, style = "→ Fireworks classifier", "magenta"
+        else:
+            outcome, style = "plain insert", "green"
+        table.add_row(label, f"{score:.4f}", f"{raw:.4f}", Text(outcome, style=style))
+
+    console.print(table)
+    console.print(
+        f"[dim]bands: merge ≥ {config.MERGE_SIMILARITY} · "
+        f"classify [{config.CONTRADICTION_LOW}, {config.MERGE_SIMILARITY}) · "
+        f"insert below. Atlas normalizes cosine as (1+cos)/2.[/]"
+    )
+    return 0
+
+
 def cmd_decay(_: argparse.Namespace) -> int:
     console.print(f"decayed {store.decay_tick()} memories by ×{T.DECAY_FACTOR}")
     return 0
@@ -328,13 +373,15 @@ def main(argv: list[str] | None = None) -> int:
     p_poison.add_argument("--tasks", nargs="*", default=None, help=argparse.SUPPRESS)
 
     sub.add_parser("status", help="memory population table")
+    sub.add_parser("calibrate", help="show real similarity scores for the write gate")
     sub.add_parser("decay", help="run one decay tick")
     sub.add_parser("wipe", help="clear memories and episodes")
 
     args = parser.parse_args(argv)
     handler = {
         "doctor": cmd_doctor, "setup": cmd_setup, "cold": cmd_cold, "warm": cmd_warm,
-        "poison": cmd_poison, "status": cmd_status, "decay": cmd_decay, "wipe": cmd_wipe,
+        "poison": cmd_poison, "status": cmd_status, "decay": cmd_decay,
+        "wipe": cmd_wipe, "calibrate": cmd_calibrate,
     }[args.cmd]
 
     started = time.time()

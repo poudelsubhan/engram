@@ -1,7 +1,35 @@
 """The extractor is a small model running unattended on every episode.
 Its output parser has to survive fenced code blocks, prose, and garbage."""
 
-from engram.llm import parse_memory_json
+from engram.llm import parse_memory_json, parse_relation
+
+
+def test_parses_the_schema_constrained_object_form():
+    """Fireworks runs this call under a JSON schema, so the real shape is
+    {"memories": [...]} — not the bare array."""
+    out = parse_memory_json(
+        '{"memories": [{"text": "Ratings live under imdb.rating.", "kind": "fact"}]}'
+    )
+    assert len(out) == 1 and out[0]["kind"] == "fact"
+
+
+def test_schema_object_with_no_memories_is_empty_not_an_error():
+    assert parse_memory_json('{"memories": []}') == []
+
+
+class TestRelationParsing:
+    def test_parses_the_schema_constrained_object(self):
+        assert parse_relation('{"verdict": "contradicts"}') == "contradicts"
+
+    def test_parses_a_bare_word(self):
+        assert parse_relation("  Duplicate\n") == "duplicate"
+
+    def test_contradicts_wins_when_the_model_rambles(self):
+        assert parse_relation("these are not compatible, B contradicts A") == "contradicts"
+
+    def test_anything_unrecognisable_fails_open_to_compatible(self):
+        for raw in ("", None, "???", '{"verdict": "unsure"}'):
+            assert parse_relation(raw) == "compatible"
 
 
 def test_parses_a_clean_array():

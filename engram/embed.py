@@ -30,12 +30,10 @@ def _detect() -> tuple[Provider, int]:
     forced = os.environ.get("ENGRAM_EMBED_PROVIDER", "").strip().lower()
     if forced == "auto":
         return "auto", 0
-    if forced == "voyage" or (not forced and config.has("VOYAGE_API_KEY")):
-        if config.has("VOYAGE_API_KEY"):
-            return "voyage", config.VOYAGE_DIMS
-    if forced == "fireworks" or config.has("FIREWORKS_API_KEY"):
-        if config.has("FIREWORKS_API_KEY"):
-            return "fireworks", config.FIREWORKS_EMBED_DIMS
+    if forced in ("", "voyage") and config.has("VOYAGE_API_KEY"):
+        return "voyage", config.EMBED_DIMS
+    if forced in ("", "fireworks") and config.has("FIREWORKS_API_KEY"):
+        return "fireworks", config.EMBED_DIMS
     return "none", 0
 
 
@@ -68,7 +66,8 @@ def _voyage(texts: list[str], input_type: str) -> list[list[float]]:
             "input": texts,
             "model": config.VOYAGE_MODEL,
             "input_type": input_type,
-            "output_dimension": config.VOYAGE_DIMS,
+            "output_dimension": config.EMBED_DIMS,
+            "output_dtype": "float",
         },
         timeout=30,
     )
@@ -84,7 +83,13 @@ def _fireworks(texts: list[str]) -> list[list[float]]:
             "Authorization": f"Bearer {config.require('FIREWORKS_API_KEY')}",
             "Content-Type": "application/json",
         },
-        json={"input": texts, "model": config.FIREWORKS_EMBED_MODEL},
+        # nomic-embed-text-v1.5 is Matryoshka-resizable, so it can meet the same
+        # EMBED_DIMS as Voyage and reuse the identical index.
+        json={
+            "input": texts,
+            "model": config.FIREWORKS_EMBED_MODEL,
+            "dimensions": config.EMBED_DIMS,
+        },
         timeout=30,
     )
     resp.raise_for_status()

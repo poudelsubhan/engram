@@ -24,6 +24,12 @@ class TestRetrievalPipeline:
         match = next(st["$match"] for st in self.p if "$match" in st)
         assert set(match["status"]["$nin"]) == {T.QUARANTINED, T.DEAD}
 
+    def test_quarantined_memories_are_also_filtered_inside_the_index(self):
+        """Without the pre-filter, quarantined memories would still consume
+        candidate slots and starve healthy ones out of the top 12."""
+        f = self.p[0]["$vectorSearch"]["filter"]
+        assert set(f["status"]["$nin"]) == {T.QUARANTINED, T.DEAD}
+
     def test_score_is_similarity_scaled_by_earned_trust(self):
         stage = next(
             st["$addFields"] for st in self.p
@@ -73,6 +79,14 @@ class TestContaminationPipeline:
         assert g["connectToField"] == "parents"
         assert g["as"] == "descendants"
         assert g["depthField"] == "depth"
+
+    def test_traversal_is_bounded_so_a_provenance_cycle_cannot_hang_the_demo(self):
+        assert self.p[1]["$graphLookup"]["maxDepth"] == config.MAX_CASCADE_DEPTH == 5
+
+    def test_dead_memories_are_not_resurrected_by_the_walk(self):
+        assert self.p[1]["$graphLookup"]["restrictSearchWithMatch"] == {
+            "status": {"$ne": T.DEAD}
+        }
 
     def test_it_is_a_single_round_trip(self):
         assert sum("$graphLookup" in st for st in self.p) == 1

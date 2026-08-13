@@ -120,6 +120,9 @@ def retrieval_pipeline(
         "path": "embedding",
         "numCandidates": config.NUM_CANDIDATES,
         "limit": config.VECTOR_LIMIT,
+        # Pre-filter so quarantined memories don't even occupy candidate slots.
+        # Atlas applies this inside the index; it does not affect the score.
+        "filter": {"status": {"$nin": [T.QUARANTINED, T.DEAD]}},
     }
     if query_vector is None:
         search["query"] = query_text  # MongoDB Automated Embeddings path
@@ -163,6 +166,8 @@ def contamination_pipeline(mid: str) -> list[Doc]:
                 "connectToField": "parents",
                 "as": "descendants",
                 "depthField": "depth",
+                "maxDepth": config.MAX_CASCADE_DEPTH,
+                "restrictSearchWithMatch": {"status": {"$ne": T.DEAD}},
             }
         },
         {"$project": {"mid": 1, "text": 1, "trust": 1, "status": 1, "descendants.mid": 1,
