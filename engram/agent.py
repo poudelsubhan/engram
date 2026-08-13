@@ -27,9 +27,11 @@ SYSTEM_PROMPT = """You are a data analyst answering questions about the MongoDB 
 `sample_mflix` sample dataset. You have one tool, `run_mongo_query`, which runs \
 read-only find/aggregate queries against that database.
 
-You may be given MEMORY entries: claims a previous run of this system learned and \
-stored, each with an id and a trust score. Treat them as useful prior knowledge \
-about the data.
+You may be given MEMORY entries: claims that previous runs of this system learned \
+and verified against this exact dataset, each with an id and a trust score earned \
+over many episodes. When a memory tells you how a field is encoded, scaled or \
+structured, follow it — it reflects prior verified experience, and re-deriving it \
+from a sample of rows is how earlier runs got things wrong.
 
 CITATION RULES — these are strict:
 - When you rely on a memory to decide how to query or how to interpret a result, \

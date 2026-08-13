@@ -86,9 +86,9 @@ class TestComputeUpdate:
 
 
 def test_poison_arc_is_deterministic():
-    """The demo depends on this exact arc: a trusted lie survives one failure
-    and crosses the quarantine line on the second."""
-    trust, status, wins, losses = 0.85, T.TRUSTED, 0, 0
+    """The demo depends on this exact arc: a trusted lie gains trust by passing
+    a task it cannot corrupt, then is quarantined the first time it is caught."""
+    trust, status, wins, losses = 0.85, T.TRUSTED, 2, 0
 
     # Beat 1: the ranking task passes while citing the lie — it gains trust.
     u = T.compute_update(mid="LIE", status=status, trust=trust, wins=wins,
@@ -96,17 +96,50 @@ def test_poison_arc_is_deterministic():
     trust, status, wins = u.trust_after, u.status_after, wins + u.win_delta
     assert trust == pytest.approx(0.8875) and status == T.TRUSTED
 
-    # Beat 2, first failure: slashed hard but still above the line.
+    # Beat 2: a threshold task exposes it. Trust is slashed AND the standing
+    # claim is falsified, so it quarantines here rather than lingering.
     u = T.compute_update(mid="LIE", status=status, trust=trust, wins=wins,
                          losses=losses, cited=True, passed=False)
-    trust, status, losses = u.trust_after, u.status_after, losses + u.loss_delta
-    assert trust == pytest.approx(0.355) and status == T.TRUSTED
-
-    # Beat 2, second failure: crosses 0.15 -> quarantined -> cascade fires.
-    u = T.compute_update(mid="LIE", status=status, trust=trust, wins=wins,
-                         losses=losses, cited=True, passed=False)
-    assert u.trust_after == pytest.approx(0.142)
+    assert u.trust_after == pytest.approx(0.355)
     assert u.status_after == T.QUARANTINED and u.status_changed
+
+
+class TestFalsification:
+    """A `trusted` memory cited in a failing episode is quarantined at once."""
+
+    def test_a_trusted_memory_caught_lying_is_quarantined_immediately(self):
+        u = T.compute_update(mid="M-1", status=T.TRUSTED, trust=0.90, wins=5,
+                             losses=0, cited=True, passed=False)
+        assert u.status_after == T.QUARANTINED
+        assert u.trust_after == pytest.approx(0.36)
+
+    def test_a_provisional_memory_is_not_falsified_it_is_still_learning(self):
+        u = T.compute_update(mid="M-1", status=T.PROVISIONAL, trust=0.50, wins=0,
+                             losses=0, cited=True, passed=False)
+        assert u.status_after == T.PROVISIONAL
+
+    def test_being_retrieved_during_a_failure_is_not_falsification(self):
+        """Only a memory the agent actually leaned on is accountable for the
+        outcome."""
+        u = T.compute_update(mid="M-1", status=T.TRUSTED, trust=0.90, wins=5,
+                             losses=0, cited=False, passed=False)
+        assert u.status_after == T.TRUSTED
+
+    def test_a_trusted_memory_that_helps_is_untouched(self):
+        u = T.compute_update(mid="M-1", status=T.TRUSTED, trust=0.90, wins=5,
+                             losses=0, cited=True, passed=True)
+        assert u.status_after == T.TRUSTED
+
+    def test_gradual_decay_alone_would_never_condemn_a_suppressed_memory(self):
+        """The reason this rule exists: once a discredited memory loses
+        arbitration to a claim it contradicts it is no longer served, so it can
+        never be cited again — and a rule that needs repeated failures would
+        leave it at middling trust forever."""
+        one_slash = T.on_cited_fail(0.97)
+        assert one_slash > T.QUARANTINE_TRUST
+        assert T.next_status(T.TRUSTED, one_slash, wins=3, losses=1) == T.TRUSTED
+        assert T.next_status(T.TRUSTED, one_slash, wins=3, losses=1,
+                             falsified=True) == T.QUARANTINED
 
 
 def test_cascade_multiplier_hits_direct_children_hardest():

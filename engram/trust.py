@@ -66,16 +66,31 @@ def cascade_multiplier(depth: int) -> float:
     return CASCADE_DIRECT if depth <= 0 else CASCADE_DEEP
 
 
-def next_status(current: str, trust: float, wins: int, losses: int) -> str:
+def next_status(
+    current: str, trust: float, wins: int, losses: int, falsified: bool = False
+) -> str:
     """Deterministic lifecycle transition, evaluated after every trust update.
 
     Order matters: an already-quarantined memory can only fall further, never
     climb back on its own — it has to be re-earned through a fresh write.
+
+    `falsified` — a memory cited in a failing episode *while it held `trusted`*
+    — quarantines immediately rather than decaying toward it. `trusted` is a
+    standing claim that a memory has earned the right to be served by default;
+    one demonstrated failure under that claim falsifies it. Gradual decay is
+    also unsound here: the moment a discredited memory loses retrieval
+    arbitration to something it contradicts, it stops being served, stops being
+    citable, and can never accumulate the losses that would have condemned it.
+    It would sit at middling trust forever, dormant but unaccountable.
+    Quarantine is not deletion — the claim can be rewritten and earn its way
+    back.
     """
     if current == DEAD:
         return DEAD
     if current == QUARANTINED:
         return DEAD if losses >= DEAD_LOSSES else QUARANTINED
+    if falsified and current == TRUSTED:
+        return QUARANTINED
     if trust < QUARANTINE_TRUST:
         return QUARANTINED
     if trust >= PROMOTE_TRUST and wins >= PROMOTE_WINS:
@@ -120,7 +135,9 @@ def compute_update(
     else:
         reason, new_trust, dw, dl = "retrieved_unused", on_retrieved_unused(trust), 0, 0
 
-    new_status = next_status(status, new_trust, wins + dw, losses + dl)
+    falsified = cited and not passed and status == TRUSTED
+    new_status = next_status(status, new_trust, wins + dw, losses + dl,
+                             falsified=falsified)
     return TrustUpdate(
         mid=mid,
         reason=reason,

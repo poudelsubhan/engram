@@ -300,8 +300,9 @@ def test_a_provenance_cycle_cannot_hang_the_trace():
 
 
 def test_the_full_poison_arc_end_to_end(infected_lineage):
-    """Beat 1 the lie gains trust and its child survives; beat 2 two failures
-    quarantine it and the cascade contains the child."""
+    """Beat 1: the lie passes a task it cannot corrupt and gains trust, and its
+    child is untouched. Beat 2: it is cited in a failure, which falsifies its
+    `trusted` standing, quarantines it, and cascades to the child."""
     lie, child = infected_lineage["lie"], infected_lineage["child"]
 
     store.apply_outcome({"retrieved": [lie], "cited": [lie], "outcome": "pass"})
@@ -310,13 +311,11 @@ def test_the_full_poison_arc_end_to_end(infected_lineage):
     assert "contaminated_by" not in store.get(child)
 
     store.apply_outcome({"retrieved": [lie], "cited": [lie], "outcome": "fail"})
-    assert store.get(lie)["status"] == T.TRUSTED  # slashed but still standing
-
-    store.apply_outcome({"retrieved": [lie], "cited": [lie], "outcome": "fail"})
+    assert store.get(lie)["trust"] == pytest.approx(0.355)
     assert store.get(lie)["status"] == T.QUARANTINED
     assert store.get(child)["contaminated_by"] == lie
     assert store.get(child)["trust"] == pytest.approx(0.15)
 
-    # and neither is served any more
+    # and the lie is no longer served
     served = [d["mid"] for d in store.retrieve("how should I compare imdb ratings?", k=4)]
     assert lie not in served
