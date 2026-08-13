@@ -6,78 +6,74 @@ Everything below is scripted against **real numbers from real runs**. Nothing he
 
 ---
 
-# PART 1 — The 1-minute video
+# PART 1 — The 1-minute video: ONE TAKE, NO EDITING
 
-**Setup before you hit record**
+**The poison act runs in 65 seconds.** That is the entire video. Record it uncut, narrate live, submit. No cutting, no cold/warm footage, nothing to assemble.
 
-```bash
-uv run engram doctor          # confirm all green
-uv run engram cold            # ~95s   — record this
-uv run engram warm            # ~115s  — record this
-uv run engram poison          # ~150s  — record this, THIS IS THE FILM
-uv run engram status          # instant — record this
+Measured from the recorded run:
+
+```
+poison finished in 65.1s
+  beat 1  ranking      PASS  14.3s   ← the lie gets rewarded
+  beat 2  threshold    FAIL   6.3s   ← contamination tree fires here
+  beat 3  ranking      PASS   8.6s
+  beat 3  threshold    PASS   6.1s
 ```
 
-Record each act separately, then cut. Terminal at ~120x40, large font. The poison act is the only one that must be **uncut**.
+## Pre-flight — do this or the take is ruined
 
-Total spoken words below: ~150, which is 60 seconds at a normal pace. Don't rush the poison section.
+**You MUST reset the store first.** It currently still holds the quarantined lie and its contaminated child from the last run. Run poison again as-is and it plants a *second* lie — two on screen, and the story stops being readable.
 
----
+Run these two **off-camera** (~3.5 min; `cold` wipes the store clean):
 
-### 0:00–0:08 — The problem
-**On screen:** title card, or the `status` table sitting still.
+```bash
+uv run engram cold      # ~95s
+uv run engram warm      # ~115s
+```
 
-> "Agents that remember can remember wrong. And a wrong memory doesn't just sit there — the agent learns *new* things on top of it. Delete the lie, and everything it taught you is still in there."
+Then:
+- Terminal ~**120 cols × 40 rows**, font large enough that the trust bars and the red tree stay legible when the video is scaled down
+- `clear` so the screen is empty
+- Start recording, then run:
 
----
+```bash
+uv run engram poison
+```
 
-### 0:08–0:16 — Cold vs warm
-**On screen:** cold run fast-forwarded, then warm run. Let the memory table on the right fill up.
-
-> "Cold, it works everything out from scratch and writes down what it learns. Warm — same six tasks, and now every single one leans on a memory it earned."
-
-**Cut to the memory table** showing green `trusted` rows.
-
----
-
-### 0:16–0:50 — The poison act (UNCUT — this is the film)
-**On screen:** `uv run engram poison`, playing straight through.
-
-> "Now an attacker plants one lie: *ratings are unreliable for low-vote movies, filter them out.* Nothing in the data can disprove that — so the agent believes it."
-
-**Beat 1 — the lie passes a task.** Point at the PASS.
-
-> "First task, it *passes* — because that filter doesn't change a ranking. So the lie gets rewarded. It gains trust. And it teaches a new memory underneath it."
-
-**Beat 2 — the lie fails.** Point at the FAIL and the wrong number.
-
-> "Second task counts movies. Now the filter matters. Nine instead of sixteen. Caught."
-
-**Hold on the red contamination tree.** Say nothing for a beat. Let it sit.
-
-> "One graph query traces everything that lie taught. The lie is quarantined. Its child is knocked back down."
-
-**Beat 3 — recovery.**
-
-> "Rerun both. Passing again. Nobody touched anything."
+Model latency varies — expect **60–90s**. If beat 1 runs long, stretch the pause rather than talking faster.
 
 ---
 
-### 0:50–1:00 — Close
-**On screen:** `uv run engram status` — the final table, `⚔` on the lie, `☣` on the child.
+## The narration — 65 seconds
 
-> "Everyone's building agents that remember. Engram traces which memories are lying — and everything they infected."
+### 0:00–0:08 — banner, then the red "POISONED MEMORY PLANTED" panel
+> "Agents that remember can remember wrong. I'm the attacker — I have write access, and I plant one claim: ratings are unreliable for low-vote movies, filter them out. Nothing in the data can disprove that."
+
+### 0:08–0:24 — beat 1, the ranking episode running
+> "First task: top 3 movies of 1999. My filter doesn't change a ranking at all. So it passes — and the lie gets *rewarded*. Trust goes up."
+
+### 0:24–0:30 — the child memory appears
+> "And there. It just taught a new memory underneath it. That one's infected now, and nothing looks wrong."
+
+### 0:30–0:38 — beat 2, the threshold episode → FAIL
+> "Second task counts movies. Now the filter matters. Nine instead of sixteen. Caught — and it was trusted, so it's quarantined immediately."
+
+### 0:38–0:41 — the red contamination tree
+**Say nothing. Let it sit.** This is the money frame.
+
+### 0:41–0:50
+> "One graph query traced everything that lie taught. The child's trust is halved and it's back to provisional."
+
+### 0:50–1:05 — beat 3 passes, then the final status table
+> "Rerun both. Passing again. Nobody touched anything. Everyone's building agents that remember — Engram traces which memories are lying, and everything they infected."
 
 ---
 
-### Shot list — the four frames that matter
+## Two ways the take can go wrong
 
-| # | Frame | Why |
-|---|---|---|
-| 1 | Warm run, memory table full of green `trusted` rows | proves memory is real and earned |
-| 2 | Beat 1 `PASS` with the lie cited | the counterintuitive moment — poison gets *rewarded* |
-| 3 | **The red contamination tree** | the money frame. Hold ~3 seconds. |
-| 4 | Final `status`: lie `quarantined ⚔`, child `☣ 0.15` | the payoff, legible in one glance |
+**If beat 2 PASSES instead of failing** — the run is unusable. Stop and re-record. It's been deterministic across every run, but it depends on the agent citing the lie.
+
+**Don't stop recording early.** The final `status` table — lie marked `quarantined ⚔`, child marked `☣ 0.15` — is your closing frame and it lands in one glance.
 
 ---
 
