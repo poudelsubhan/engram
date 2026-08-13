@@ -78,9 +78,26 @@ def render_memories(docs: list[dict[str, Any]]) -> str:
 # --------------------------------------------------------------------------
 
 
+def _checkpointable(doc: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a memory doc to the fields the loop actually uses.
+
+    Graph state is serialized into Atlas by MongoDBSaver, and BSON ObjectIds
+    (`_id`, `source_episode`) are not msgpack-serializable — carrying a raw
+    Mongo document through the state crashes the checkpointer.
+    """
+    return {
+        "mid": doc["mid"],
+        "text": doc.get("text", ""),
+        "trust": float(doc.get("trust", 0.0)),
+        "status": doc.get("status", ""),
+        "score": round(float(doc.get("score", 0.0)), 4),
+    }
+
+
 def retrieve_memories(state: EpisodeState) -> EpisodeState:
     docs = store.retrieve(state["prompt"], k=config.RETRIEVE_K)
-    return {"memories": docs, "retrieved": [d["mid"] for d in docs],
+    return {"memories": [_checkpointable(d) for d in docs],
+            "retrieved": [d["mid"] for d in docs],
             "started_at": time.time()}
 
 

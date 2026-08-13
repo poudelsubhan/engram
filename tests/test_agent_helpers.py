@@ -55,3 +55,47 @@ class TestCitationGating:
 
     def test_a_run_with_no_memories_can_have_no_citations(self):
         assert self._gate("I cited [M-0001] anyway", []) == []
+
+
+class TestCheckpointability:
+    """Graph state is serialized into Atlas by MongoDBSaver. A raw Mongo
+    document carries BSON ObjectIds, which msgpack cannot encode — that crashed
+    every episode until the state was trimmed."""
+
+    @staticmethod
+    def _doc():
+        from bson import ObjectId
+        return {
+            "_id": ObjectId(),
+            "mid": "M-0007",
+            "text": "In sample_mflix, ratings live at imdb.rating.",
+            "trust": 0.7231,
+            "status": "trusted",
+            "score": 0.6412345,
+            "source_episode": ObjectId(),
+            "created_at": None,
+        }
+
+    def test_bson_object_ids_are_stripped(self):
+        from engram.agent import _checkpointable
+        out = _checkpointable(self._doc())
+        assert set(out) == {"mid", "text", "trust", "status", "score"}
+
+    def test_the_result_survives_the_checkpoint_serializer(self):
+        from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+        from engram.agent import _checkpointable
+        state = {"memories": [_checkpointable(self._doc())], "retrieved": ["M-0007"]}
+        assert JsonPlusSerializer().dumps_typed(state)
+
+    def test_a_raw_mongo_document_would_not_have(self):
+        import pytest
+        from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+        with pytest.raises(TypeError, match="ObjectId"):
+            JsonPlusSerializer().dumps_typed({"memories": [self._doc()]})
+
+    def test_what_the_model_sees_is_unchanged(self):
+        from engram.agent import _checkpointable, render_memories
+        assert render_memories([_checkpointable(self._doc())]) == (
+            "MEMORY [M-0007] (trust 0.72): In sample_mflix, ratings live at "
+            "imdb.rating."
+        )

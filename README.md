@@ -45,7 +45,7 @@ No human in the loop. The store notices, traces, and contains.
                                     │ downgrade the infected subtree     │
                                     └────────────────────────────────────┘
                            ▲
-                           │  write gate: dedupe ≥0.92 · classify [0.85,0.92)
+                           │  write gate: dedupe ≥0.985 · classify [0.88,0.985)
                            │
                     ┌──────┴────────────────────────┐
                     │ Fireworks metabolism tier      │
@@ -141,17 +141,34 @@ New memories start `provisional` at `trust 0.30`. A quarantined memory can't cli
 
 > `engram/trust.py` — pure functions, no MongoDB imports, unit-tested including the exact poison arc.
 
-### The write gate
+### The write gate — and why a model, not a distance, guards it
 
 Not every extracted claim becomes a new memory.
 
-- **similarity ≥ 0.92** → **merge**. `$inc uses`, union `parents`, no insert. A naive store would accumulate fifty paraphrases of the same fact and split trust fifty ways; Engram concentrates it.
-- **0.85 ≤ similarity < 0.92** → ask the small model: `duplicate | compatible | contradicts`. On `contradicts`, insert **and** write a `contradicts` edge on both docs. When two contradicting memories are retrieved together, only the higher-trust one reaches the model (`contradiction_suppressed`).
+- **similarity ≥ 0.985** → **merge**. `$inc uses`, union `parents`, no insert. A naive store accumulates fifty paraphrases of one fact and splits its trust fifty ways; Engram concentrates it.
+- **0.88 ≤ similarity < 0.985** → ask the small model: `duplicate | compatible | contradicts`. On `contradicts`, insert **and** write a `contradicts` edge on both docs. When two contradicting memories are later retrieved together, only the higher-trust one reaches the model (`contradiction_suppressed`).
 - **otherwise** → insert as `provisional`.
 
-The classifier never blocks a write. Any error, timeout, or unparseable answer falls through to a plain insert.
+Those bands are **measured, not assumed**. Two things make the obvious numbers wrong.
 
-> Atlas normalizes cosine as `(1 + cos) / 2`, so these are normalized scores — `0.92` is raw cosine `0.84`. `uv run engram calibrate` prints real scores for paraphrase / contradiction / same-topic / unrelated pairs so the bands can be checked against data instead of intuition.
+First, `$vectorSearch` doesn't return raw cosine — it normalizes to `(1 + cos) / 2`, so every score lives in `[0.5, 1.0]`.
+
+Second, and more interesting — measured against the true claim *"imdb.rating is a float on a 0 to 10 scale"*:
+
+| relationship | score |
+|---|---|
+| paraphrase | 0.918 – 0.954 |
+| **contradiction** | **0.945 – 0.968** |
+| same topic | 0.729 – 0.850 |
+| unrelated | 0.754 – 0.765 |
+
+**The contradiction scores higher than the paraphrase.** *"0-100, divide by 10"* is lexically almost identical to *"0 to 10 scale"* — embedding distance cannot tell agreement from denial, because denial is written in the vocabulary of the thing it denies. Any merge gate in the 0.92 range silently absorbs the lie into the memory it contradicts, and it never exists as its own claim to catch.
+
+So the merge gate sits above the entire contradiction band and everything below it routes to the classifier. That is precisely why the metabolism tier is load-bearing rather than decorative: **the one decision a vector store cannot make for itself is whether two nearby claims agree.**
+
+The classifier never blocks a write. Any error, timeout, or unparseable answer falls through to a plain insert. Truncated output is discarded rather than keyword-scanned — a model cut off mid-sentence can emit *"does not contradict"*, and scanning for the word would fork a memory that should have merged.
+
+> Reproduce the table with `uv run engram calibrate`. The bands are embedding-model-specific; re-run it after changing provider.
 
 ---
 
@@ -187,6 +204,20 @@ The task suite is split deliberately: three tasks threshold or average `imdb.rat
 Expected answers are **computed from the cluster** by `setup`, never hand-written — a subtly wrong expectation would poison the trust signal the whole system runs on.
 
 Every state change is appended to `runs/{ts}.jsonl`: `memory_written`, `memory_merged`, `memory_retrieved`, `memory_cited`, `trust_updated`, `status_changed`, `contamination_traced`, `contradiction_suppressed`, `episode_start`, `episode_end`.
+
+---
+
+## Things that only showed up against a real cluster
+
+Worth writing down, because none of them are visible in unit tests:
+
+**Atlas Search is eventually consistent.** A memory that `insert_one` has already acknowledged is *not* yet visible to `$vectorSearch`. Write-then-immediately-retrieve silently sees an empty store — which also means the dedupe gate can miss a duplicate written moments earlier. `store.wait_for_sync()` probes using each memory's own stored embedding, so the barrier costs zero calls to the embedding provider.
+
+**The poison act plants its lie by bypassing the write gate** (`store.plant`), for two reasons. It's the accurate threat model — an adversary with database write access doesn't go through your dedupe checks. And it keeps the demo honest: sitting in the classifier band against an existing "ratings are 0-10" memory, a `duplicate` verdict would absorb the lie and leave nothing to trace. What's being demonstrated is the cascade, not a classifier coin flip.
+
+**Graph state gets serialized into Atlas, so it has to be msgpack-clean.** Passing raw Mongo documents through LangGraph state crashes `MongoDBSaver` on the BSON `ObjectId` in `_id`. State carries a trimmed projection instead.
+
+**The recommended small models reason before answering.** A tight `max_tokens` doesn't get you a terse answer, it gets you truncated reasoning — which a keyword-scanning parser will happily misread as a verdict. Truncation is now detected and discarded rather than parsed.
 
 ---
 
