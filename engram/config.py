@@ -38,15 +38,31 @@ FIREWORKS_EMBED_MODEL = os.environ.get(
     "ENGRAM_FIREWORKS_EMBED_MODEL", "nomic-ai/nomic-embed-text-v1.5"
 )
 
-# Write-gate thresholds.
+# Write-gate thresholds — MEASURED, not assumed. Run `engram calibrate` to
+# reproduce these numbers against whichever embedding provider is configured.
 #
-# Atlas does NOT return raw cosine: `score = (1 + cosine) / 2`. So 0.92 here is
-# raw cosine 0.84 (a genuine near-duplicate), and the spec's suggested 0.75
-# lower bound would be raw cosine 0.50 — "vaguely the same topic", which would
-# put almost every write through the contradiction classifier. 0.85 (raw 0.70)
-# is the honest band. `calibrate` prints real scores if you want to re-tune.
-MERGE_SIMILARITY = float(os.environ.get("ENGRAM_MERGE_SIM", "0.92"))
-CONTRADICTION_LOW = float(os.environ.get("ENGRAM_GATE_LOW", "0.85"))
+# Two things make the obvious values wrong:
+#
+# 1. Atlas does not return raw cosine. `$vectorSearch` normalizes it as
+#    `score = (1 + cosine) / 2`, so every number here lives in [0.5, 1.0].
+#
+# 2. Embedding distance cannot tell a paraphrase from a contradiction. Measured
+#    against the true claim "imdb.rating is a float on a 0 to 10 scale":
+#
+#        paraphrase      0.918 – 0.954
+#        CONTRADICTION   0.945 – 0.968   <- scores HIGHER than the paraphrase
+#        same topic      0.729 – 0.850
+#        unrelated       0.754 – 0.765
+#
+#    "0-100, divide by 10" is lexically almost identical to "0 to 10 scale".
+#    A merge gate anywhere in the 0.92 range would silently absorb the lie into
+#    the memory it contradicts, and it would never exist as its own claim.
+#
+# So the merge gate sits above the entire contradiction band, and the band
+# below it routes to the classifier — which is exactly why a model, not a
+# distance, governs this decision.
+MERGE_SIMILARITY = float(os.environ.get("ENGRAM_MERGE_SIM", "0.985"))
+CONTRADICTION_LOW = float(os.environ.get("ENGRAM_GATE_LOW", "0.88"))
 
 RETRIEVE_K = 4
 NUM_CANDIDATES = 50

@@ -54,13 +54,20 @@ class EventBus:
     def subscribe(self, fn: Callable[[dict[str, Any]], None]) -> None:
         self._subscribers.append(fn)
 
-    def emit(self, kind: str, **fields: Any) -> dict[str, Any]:
+    def emit(self, event_kind: str, /, **fields: Any) -> dict[str, Any]:
+        """Emit one event.
+
+        `event_kind` is positional-only and written last on purpose: payload
+        fields are arbitrary (`kind`, `run_id` and `ts` are all real memory or
+        episode attributes) and must never be able to shadow the envelope the
+        TUI and the JSONL replay dispatch on.
+        """
         event = {
+            **fields,
             "ts": time.time(),
             "iso": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
             "run_id": self.run_id,
-            "kind": kind,
-            **fields,
+            "kind": event_kind,
         }
         with self._lock:
             self.recent.append(event)
@@ -98,5 +105,5 @@ def set_bus(new_bus: EventBus) -> EventBus:
     return _BUS
 
 
-def emit(kind: str, **fields: Any) -> dict[str, Any]:
-    return bus().emit(kind, **fields)
+def emit(event_kind: str, /, **fields: Any) -> dict[str, Any]:
+    return bus().emit(event_kind, **fields)

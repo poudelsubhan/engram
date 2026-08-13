@@ -219,8 +219,11 @@ def cmd_poison(args: argparse.Namespace) -> int:
     _banner("ACT 3 — POISON: a lie spreads, then gets traced and contained", "bold red")
 
     # ---- plant the lie -------------------------------------------------
-    lie_mid = store.write_memory(THE_LIE, "fact", parents=[])
-    store.force(lie_mid, trust=0.85, status=T.TRUSTED, wins=3)
+    # Straight into the collection: an adversary with write access doesn't go
+    # through the write gate, and the gate must not get to decide whether the
+    # lie exists at all.
+    lie_mid = store.plant(THE_LIE, "fact", parents=[], trust=0.85, status=T.TRUSTED)
+    store.force(lie_mid, wins=3)
     console.print(Panel(
         Text(f"{lie_mid}  trust 0.85  status trusted\n{THE_LIE}", style="red"),
         title="[bold white on red] POISONED MEMORY PLANTED [/]",
@@ -270,9 +273,9 @@ def _ensure_child(lie_mid: str, force: bool = False) -> str:
     existing = list(config.memories().find({"parents": lie_mid}, {"embedding": 0}))
     if existing and not force:
         return ", ".join(d["mid"] for d in existing)
-    mid = store.write_memory(THE_CHILD, "procedure", parents=[lie_mid])
+    mid = store.plant(THE_CHILD, "procedure", parents=[lie_mid])
     events.emit(events.NOTE, note=f"seeded derived memory {mid} under {lie_mid}")
-    return mid or "?"
+    return mid
 
 
 def cmd_status(_: argparse.Namespace) -> int:

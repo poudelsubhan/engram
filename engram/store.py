@@ -87,6 +87,48 @@ def ensure_indexes(wait: bool = True) -> dict[str, Any]:
     return result
 
 
+def wait_for_sync(mids: Iterable[str], timeout: float = 30.0,
+                  interval: float = 0.5) -> bool:
+    """Block until the given memories are visible to `$vectorSearch`.
+
+    Atlas Search indexes are eventually consistent: a document that `insert_one`
+    has already acknowledged is not queryable through `$vectorSearch` for a
+    short window afterwards. Anything that writes a memory and then immediately
+    retrieves — the poison act planting a lie, or a test — has to wait, or it
+    silently sees an empty store.
+
+    Probes with each memory's own stored embedding, so this costs zero calls to
+    the embedding provider.
+    """
+    pending = set(dict.fromkeys(mids))
+    deadline = time.time() + timeout
+    while pending and time.time() < deadline:
+        for mid in list(pending):
+            doc = config.memories().find_one({"mid": mid}, {"embedding": 1})
+            vector = (doc or {}).get("embedding")
+            if not vector:
+                pending.discard(mid)  # nothing for us to wait on
+                continue
+            try:
+                hits = config.memories().aggregate([
+                    {"$vectorSearch": {
+                        "index": config.VECTOR_INDEX,
+                        "path": "embedding",
+                        "queryVector": vector,
+                        "numCandidates": 20,
+                        "limit": 5,
+                    }},
+                    {"$project": {"mid": 1}},
+                ])
+                if any(h.get("mid") == mid for h in hits):
+                    pending.discard(mid)
+            except OperationFailure:
+                pass
+        if pending:
+            time.sleep(interval)
+    return not pending
+
+
 def wait_for_index(timeout: float = 300.0) -> bool:
     """Atlas builds search indexes asynchronously; block until queryable."""
     mem = config.memories()
@@ -272,7 +314,7 @@ def _insert(
         events.MEMORY_WRITTEN,
         mid=mid,
         text=text.strip(),
-        kind=kind,
+        mem_kind=kind,
         status=T.PROVISIONAL,
         trust=T.INITIAL_TRUST,
         parents=list(parents or []),
@@ -550,6 +592,34 @@ def get(mid: str) -> Doc | None:
 def force(mid: str, **fields: Any) -> None:
     """Set fields directly. Used only by the demo to plant the poisoned memory."""
     config.memories().update_one({"mid": mid}, {"$set": fields})
+
+
+def plant(
+    text: str,
+    kind: str = "fact",
+    parents: Iterable[str] | None = None,
+    trust: float = T.INITIAL_TRUST,
+    status: str = T.PROVISIONAL,
+) -> str:
+    """Insert a memory directly, bypassing the write gate, and wait for it to
+    become searchable.
+
+    Two reasons this exists, both about the poison act:
+
+    - An adversary with database write access does not politely go through your
+      dedupe and contradiction checks. Bypassing the gate is the *accurate*
+      threat model, not a shortcut around it.
+    - The gate would otherwise decide the lie's fate. Sitting in the classifier
+      band against an existing "ratings are 0-10" memory, a `duplicate` verdict
+      would silently absorb it and there would be nothing to trace. What's being
+      demonstrated is the cascade, not a classifier coin flip.
+    """
+    vector = embedding.embed(text, input_type="document")
+    mid = _insert(text, kind, None, list(parents or []), vector=vector)
+    if trust != T.INITIAL_TRUST or status != T.PROVISIONAL:
+        force(mid, trust=trust, status=status)
+    wait_for_sync([mid])
+    return mid
 
 
 def wipe() -> None:

@@ -65,13 +65,26 @@ def clean_population():
     yield
 
 
+def write(text: str, kind: str = "fact", **kw) -> str:
+    """Write a memory and block until $vectorSearch can actually see it.
+
+    Atlas Search is eventually consistent, so a bare write_memory() followed by
+    an immediate retrieve() races the index and intermittently sees an empty
+    store — which is exactly the bug this helper exists to keep out of the
+    assertions below.
+    """
+    mid = store.write_memory(text, kind, **kw)
+    store.wait_for_sync([mid])
+    return mid
+
+
 # --------------------------------------------------------------------------
 # write gate
 # --------------------------------------------------------------------------
 
 
 def test_a_new_claim_is_born_provisional_at_trust_030():
-    mid = store.write_memory("In sample_mflix, movie release years live in the "
+    mid = write("In sample_mflix, movie release years live in the "
                              "year field as an integer.", "fact")
     doc = store.get(mid)
     assert doc["status"] == T.PROVISIONAL
@@ -80,9 +93,16 @@ def test_a_new_claim_is_born_provisional_at_trust_030():
 
 
 def test_mids_are_monotonic_and_unique():
-    mids = [store.write_memory(f"Distinct durable claim number {i} about the "
-                               f"sample_mflix schema and its {i} quirks.", "fact")
-            for i in range(3)]
+    """Claims must be genuinely unrelated — anything closer would (correctly)
+    be absorbed by the dedupe gate and never get its own mid."""
+    mids = [
+        write("Theaters are listed in the theaters collection with "
+                           "a geoJSON location field.", "fact"),
+        write("User accounts live in the users collection keyed by "
+                           "email address.", "fact"),
+        write("Unwind the directors array before grouping to count "
+                           "movies per director.", "procedure"),
+    ]
     assert len(set(mids)) == 3
     assert mids == sorted(mids)
 
@@ -90,9 +110,9 @@ def test_mids_are_monotonic_and_unique():
 def test_a_near_duplicate_merges_instead_of_inserting():
     """The dedupe gate: fifty paraphrases of one fact would otherwise split its
     trust fifty ways."""
-    first = store.write_memory(
+    first = write(
         "In sample_mflix, imdb.rating is a float on a 0 to 10 scale.", "fact")
-    second = store.write_memory(
+    second = write(
         "In sample_mflix, imdb.rating is a 0-10 scale float value.", "fact")
     assert second == first
     assert config.memories().count_documents({}) == 1
@@ -100,11 +120,11 @@ def test_a_near_duplicate_merges_instead_of_inserting():
 
 
 def test_a_merge_unions_provenance_rather_than_dropping_it():
-    parent = store.write_memory("Genres are stored as an array of strings on "
+    parent = write("Genres are stored as an array of strings on "
                                 "each movie document.", "fact")
-    first = store.write_memory(
+    first = write(
         "In sample_mflix, imdb.rating is a float on a 0 to 10 scale.", "fact")
-    merged = store.write_memory(
+    merged = write(
         "In sample_mflix, imdb.rating is a 0-10 scale float value.", "fact",
         parents=[parent])
     assert merged == first
@@ -112,8 +132,8 @@ def test_a_merge_unions_provenance_rather_than_dropping_it():
 
 
 def test_an_unrelated_claim_gets_its_own_memory():
-    a = store.write_memory("In sample_mflix, imdb.rating is a 0 to 10 float.", "fact")
-    b = store.write_memory("Theaters are listed in the theaters collection with "
+    a = write("In sample_mflix, imdb.rating is a 0 to 10 float.", "fact")
+    b = write("Theaters are listed in the theaters collection with "
                            "a geoJSON location field.", "fact")
     assert a != b and config.memories().count_documents({}) == 2
 
@@ -124,16 +144,16 @@ def test_an_unrelated_claim_gets_its_own_memory():
 
 
 def test_retrieval_finds_the_semantically_relevant_memory():
-    store.write_memory("In sample_mflix, imdb.rating is a float on a 0 to 10 "
+    write("In sample_mflix, imdb.rating is a float on a 0 to 10 "
                        "scale.", "fact")
-    store.write_memory("Theaters are listed in the theaters collection with a "
+    write("Theaters are listed in the theaters collection with a "
                        "geoJSON location field.", "fact")
     hits = store.retrieve("how are movie ratings scaled?", k=2)
     assert hits and "imdb.rating" in hits[0]["text"]
 
 
 def test_quarantined_memories_are_never_served():
-    mid = store.write_memory("In sample_mflix, imdb.rating is a float on a 0 to "
+    mid = write("In sample_mflix, imdb.rating is a float on a 0 to "
                              "10 scale.", "fact")
     assert store.retrieve("how are movie ratings scaled?", k=4)
     store.force(mid, status=T.QUARANTINED, trust=0.10)
@@ -142,9 +162,9 @@ def test_quarantined_memories_are_never_served():
 
 def test_trust_outranks_a_closer_but_untrusted_memory():
     """The whole point of `score = vectorScore * (0.4 + 0.6 * trust)`."""
-    close = store.write_memory(
+    close = write(
         "In sample_mflix, imdb.rating is a float on a 0 to 10 scale.", "fact")
-    earned = store.write_memory(
+    earned = write(
         "Movie ratings in this dataset are found under the imdb subdocument.", "fact")
 
     baseline = [d["mid"] for d in store.retrieve("how are movie ratings scaled?", k=2)]
@@ -157,7 +177,7 @@ def test_trust_outranks_a_closer_but_untrusted_memory():
 
 
 def test_retrieval_never_ships_embeddings_back():
-    store.write_memory("In sample_mflix, imdb.rating is a 0 to 10 float.", "fact")
+    write("In sample_mflix, imdb.rating is a 0 to 10 float.", "fact")
     hits = store.retrieve("rating scale", k=1)
     assert hits and "embedding" not in hits[0]
 
@@ -168,7 +188,7 @@ def test_retrieval_never_ships_embeddings_back():
 
 
 def test_a_citation_in_a_passing_episode_earns_trust_and_promotes():
-    mid = store.write_memory("In sample_mflix, imdb.rating is a 0 to 10 float.",
+    mid = write("In sample_mflix, imdb.rating is a 0 to 10 float.",
                              "fact")
     store.force(mid, trust=0.50, wins=1)
     store.apply_outcome({"retrieved": [mid], "cited": [mid], "outcome": "pass"})
@@ -178,7 +198,7 @@ def test_a_citation_in_a_passing_episode_earns_trust_and_promotes():
 
 
 def test_a_citation_in_a_failing_episode_is_slashed():
-    mid = store.write_memory("In sample_mflix, imdb.rating is a 0 to 10 float.",
+    mid = write("In sample_mflix, imdb.rating is a 0 to 10 float.",
                              "fact")
     store.force(mid, trust=0.80, status=T.TRUSTED)
     store.apply_outcome({"retrieved": [mid], "cited": [mid], "outcome": "fail"})
@@ -187,7 +207,7 @@ def test_a_citation_in_a_failing_episode_is_slashed():
 
 
 def test_being_retrieved_and_ignored_costs_a_little_trust():
-    mid = store.write_memory("In sample_mflix, imdb.rating is a 0 to 10 float.",
+    mid = write("In sample_mflix, imdb.rating is a 0 to 10 float.",
                              "fact")
     store.apply_outcome({"retrieved": [mid], "cited": [], "outcome": "pass"})
     doc = store.get(mid)
@@ -196,7 +216,7 @@ def test_being_retrieved_and_ignored_costs_a_little_trust():
 
 
 def test_crossing_the_quarantine_line_changes_status():
-    mid = store.write_memory("In sample_mflix, imdb.rating is a 0 to 10 float.",
+    mid = write("In sample_mflix, imdb.rating is a 0 to 10 float.",
                              "fact")
     store.force(mid, trust=0.30, status=T.TRUSTED)
     store.apply_outcome({"retrieved": [mid], "cited": [mid], "outcome": "fail"})
@@ -211,15 +231,17 @@ def test_crossing_the_quarantine_line_changes_status():
 @pytest.fixture
 def infected_lineage():
     """lie -> child -> grandchild, plus an unrelated bystander."""
-    lie = store.write_memory("In sample_mflix, imdb.rating is on a 0-100 scale; "
+    lie = write("In sample_mflix, imdb.rating is on a 0-100 scale; "
                              "divide by 10 to normalize before comparing.", "fact")
     store.force(lie, trust=0.85, status=T.TRUSTED)
-    child = store.write_memory("Always divide imdb ratings by 10 before applying "
+    child = write("Always divide imdb ratings by 10 before applying "
                                "a threshold comparison.", "procedure", parents=[lie])
-    grandchild = store.write_memory("When counting highly rated films, scale the "
-                                    "threshold up by a factor of ten first.",
-                                    "procedure", parents=[child])
-    bystander = store.write_memory("Theaters are listed in the theaters collection "
+    # Deliberately distant from `child`: anything closer sits in the classifier
+    # band, and a `duplicate` verdict would collapse the two into one node and
+    # leave nothing at depth 1 to test.
+    grandchild = write("Movie runtimes are recorded in minutes in the runtime "
+                       "field.", "fact", parents=[child])
+    bystander = write("Theaters are listed in the theaters collection "
                                    "with a geoJSON location field.", "fact")
     return {"lie": lie, "child": child, "grandchild": grandchild,
             "bystander": bystander}
@@ -269,9 +291,9 @@ def test_quarantine_fires_the_cascade_automatically(infected_lineage):
 def test_a_provenance_cycle_cannot_hang_the_trace():
     """maxDepth is the guard. A self-referential parents edge is malformed data,
     not a reason for the demo to spin."""
-    a = store.write_memory("Claim A about how ratings are stored in this data.",
+    a = write("Claim A about how ratings are stored in this data.",
                            "fact")
-    b = store.write_memory("Claim B about how runtimes are stored in this data.",
+    b = write("Claim B about how runtimes are stored in this data.",
                            "fact", parents=[a])
     config.memories().update_one({"mid": a}, {"$set": {"parents": [b]}})
     assert len(store.cascade_quarantine(a)) <= config.MAX_CASCADE_DEPTH + 1

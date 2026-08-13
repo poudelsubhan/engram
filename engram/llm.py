@@ -92,24 +92,39 @@ def classify_relation(claim_a: str, claim_b: str) -> str:
             "json_schema": {"name": "Relation", "schema": _VERDICT_SCHEMA},
         },
         temperature=0,
-        max_tokens=32,
+        # Generous: the recommended small models reason before emitting JSON,
+        # and a budget that cuts them off mid-thought yields prose, not a verdict.
+        max_tokens=CLASSIFY_MAX_TOKENS,
     )
-    return parse_relation(resp.choices[0].message.content or "")
+    choice = resp.choices[0]
+    return parse_relation(choice.message.content or "",
+                          truncated=choice.finish_reason == "length")
 
 
-def parse_relation(raw: str) -> str:
-    """Tolerant of both the schema-constrained object and a bare word."""
-    raw = (raw or "").strip().lower()
+CLASSIFY_MAX_TOKENS = 400
+EXTRACT_MAX_TOKENS = 1200
+
+
+def parse_relation(raw: str, truncated: bool = False) -> str:
+    """Read a verdict out of the response, or fail open to 'compatible'.
+
+    Truncated output is discarded rather than mined for keywords: a model cut
+    off mid-sentence can easily emit "does not contradict", and keyword
+    scanning would read that as `contradicts` and fork the memory wrongly.
+    """
+    if truncated:
+        return "compatible"
+    raw = (raw or "").strip()
     try:
         parsed = json.loads(raw)
         if isinstance(parsed, dict):
-            raw = str(parsed.get("verdict", "")).lower()
+            verdict = str(parsed.get("verdict", "")).strip().lower()
+            return verdict if verdict in VALID_RELATIONS else "compatible"
     except (json.JSONDecodeError, ValueError):
         pass
-    for candidate in ("contradicts", "duplicate", "compatible"):
-        if candidate in raw:
-            return candidate
-    return "compatible"
+    # A bare one-word answer is fine; anything longer is prose we don't trust.
+    word = raw.strip().strip(".\"'").lower()
+    return word if word in VALID_RELATIONS else "compatible"
 
 
 _EXTRACT_PROMPT = (
@@ -160,9 +175,12 @@ def extract_memories(episode_summary: str) -> list[dict[str, str]]:
             "json_schema": {"name": "Memories", "schema": _EXTRACT_SCHEMA},
         },
         temperature=0,
-        max_tokens=600,
+        max_tokens=EXTRACT_MAX_TOKENS,
     )
-    return parse_memory_json(resp.choices[0].message.content or "")
+    choice = resp.choices[0]
+    if choice.finish_reason == "length":
+        return []  # truncated JSON is invalid JSON; write nothing rather than junk
+    return parse_memory_json(choice.message.content or "")
 
 
 def parse_memory_json(raw: str) -> list[dict[str, str]]:

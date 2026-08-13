@@ -24,8 +24,16 @@ class TestRelationParsing:
     def test_parses_a_bare_word(self):
         assert parse_relation("  Duplicate\n") == "duplicate"
 
-    def test_contradicts_wins_when_the_model_rambles(self):
-        assert parse_relation("these are not compatible, B contradicts A") == "contradicts"
+    def test_truncated_output_is_discarded_rather_than_mined_for_keywords(self):
+        """The recommended small models reason before answering. A response cut
+        off mid-thought can say 'does not contradict' — keyword scanning would
+        read that as `contradicts` and fork a memory that should have merged."""
+        assert parse_relation("A says 0-10 and B says the same, so it does not "
+                              "contradict", truncated=True) == "compatible"
+
+    def test_untruncated_prose_is_still_not_trusted(self):
+        assert parse_relation("Well, these two claims do not contradict "
+                              "each other at all") == "compatible"
 
     def test_anything_unrecognisable_fails_open_to_compatible(self):
         for raw in ("", None, "???", '{"verdict": "unsure"}'):
