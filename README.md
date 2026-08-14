@@ -1,4 +1,4 @@
-# Engram — a trust layer for agent memory
+# Engram: a trust layer for agent memory
 
 **Everyone is building agents that remember. Engram traces which memories are lying and everything they infected.**
 
