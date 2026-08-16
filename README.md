@@ -286,3 +286,25 @@ The trust rules, both pipeline shapes, the citation gate, the read-only tool gua
 Python 3.12 + [`uv`](https://docs.astral.sh/uv/). A MongoDB Atlas cluster created through the **Atlas Hackathon Sandbox** with the `sample_mflix` sample dataset loaded. Keys: `MONGODB_URI`, `OPENROUTER_API_KEY`, `FIREWORKS_API_KEY`, and optionally `VOYAGE_API_KEY`.
 
 Built for the MongoDB Persistent Context Sprint. Greenfield — no code imported from any prior project.
+
+---
+
+## Keywords
+
+`agent-memory` · `memory-poisoning` · `prompt-injection` · `ai-security` ·
+`agent-security` · `owasp-agentic-ai` · `provenance` · `provenance-graph` ·
+`contamination-trace` · `lineage-tracking` · `trust-scoring` ·
+`trust-weighted-retrieval` · `memory-lifecycle` · `quarantine-cascade` ·
+`self-healing` · `autonomous-recovery` · `contradiction-detection` ·
+`write-gate` · `deduplication` · `rag` · `retrieval-augmented-generation` ·
+`vector-search` · `embeddings` · `hybrid-ranking` · `mongodb` ·
+`mongodb-atlas` · `atlas-vector-search` · `graphlookup` ·
+`aggregation-pipeline` · `langgraph` · `checkpointing` · `llm-agents` ·
+`autonomous-agents` · `long-term-memory` · `persistent-context` ·
+`episodic-memory` · `knowledge-graph` · `claude` · `anthropic` ·
+`openrouter` · `fireworks-ai` · `voyage-ai` · `event-sourcing` ·
+`observability` · `tui` · `python`
+
+*Topics: agent memory · memory poisoning · AI security · provenance graphs ·
+trust-weighted retrieval · self-healing memory · contamination cascade ·
+MongoDB Atlas Vector Search · $graphLookup · LangGraph · RAG · LLM agents*
